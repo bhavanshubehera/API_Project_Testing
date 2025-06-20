@@ -1,0 +1,7 @@
+.completed {
+  text-decoration: line-through;
+  color: #888;
+}
+.task-text {
+  font-weight: 500;
+}
