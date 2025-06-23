@@ -24,5 +24,16 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-const taskRoutes = require('./routes/taskroutes');
+const taskRoutes = require('./routes/tasks');
 app.use('/api', taskRoutes);  // All task APIs start with /api
+
+// Don't start server if we're in test mode
+if (process.env.NODE_ENV !== 'test') {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+// Export app for testing
+module.exports = app;
