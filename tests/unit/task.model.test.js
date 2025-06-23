@@ -1,88 +1,66 @@
 const mongoose = require('mongoose');
+const Task = require('../../models/Task');
 
-// Assuming your Task model is in models/Task.js
-// You might need to adjust the path based on your actual file structure
-const Task = require('../../models/Task'); // Adjust path as needed
+beforeAll(async () => {
+  await mongoose.connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+  });
+});
+
+afterEach(async () => {
+  await Task.deleteMany(); // clean up between tests
+});
+
+afterAll(async () => {
+  // Only drop DB if connected
+  if (mongoose.connection.readyState === 1) {
+    await mongoose.connection.dropDatabase();
+    await mongoose.disconnect();
+  }
+});
 
 describe('Task Model Unit Tests', () => {
   describe('Task Creation', () => {
     test('should create a valid task', async () => {
-      const taskData = {
-        title: 'Test Task',
-        description: 'Test Description',
-        completed: false
-      };
+      const task = new Task({ title: 'Test', description: 'Desc', completed: false });
+      const saved = await task.save();
 
-      const task = new Task(taskData);
-      const savedTask = await task.save();
-
-      expect(savedTask._id).toBeDefined();
-      expect(savedTask.title).toBe(taskData.title);
-      expect(savedTask.description).toBe(taskData.description);
-      expect(savedTask.completed).toBe(false);
+      expect(saved._id).toBeDefined();
+      expect(saved.title).toBe('Test');
+      expect(saved.description).toBe('Desc');
+      expect(saved.completed).toBe(false);
     });
 
     test('should create task with default completed status', async () => {
-      const taskData = {
-        title: 'Test Task',
-        description: 'Test Description'
-      };
+      const task = new Task({ title: 'Task', description: 'No status' });
+      const saved = await task.save();
 
-      const task = new Task(taskData);
-      const savedTask = await task.save();
-
-      expect(savedTask.completed).toBeFalsy();
+      expect(saved.completed).toBe(false);
     });
 
     test('should handle missing title', async () => {
-      const taskData = {
-        description: 'Test Description',
-        completed: false
-      };
+      const task = new Task({ description: 'Missing title' });
 
-      const task = new Task(taskData);
-      
-      // If title is required, this should throw an error
-      // Adjust based on your actual model validation
-      try {
-        await task.save();
-        // If no error, title is not required
-        expect(task.title).toBeUndefined();
-      } catch (error) {
-        // If error, title is required
-        expect(error).toBeDefined();
-      }
+      await expect(task.save()).rejects.toThrow(); // title is required
     });
   });
 
   describe('Task Validation', () => {
-    test('should validate task fields', async () => {
-      const task = new Task({
-        title: 'Valid Task',
-        description: 'Valid Description',
-        completed: true
-      });
-
-      const validationError = task.validateSync();
-      expect(validationError).toBeUndefined();
+    test('should validate correct task', () => {
+      const task = new Task({ title: 'Valid', description: 'OK', completed: true });
+      expect(task.validateSync()).toBeUndefined();
     });
 
-    test('should handle boolean conversion for completed field', () => {
-      const task = new Task({
-        title: 'Test Task',
-        description: 'Test Description',
-        completed: 'true' // String instead of boolean
-      });
-
-      // Mongoose should convert string 'true' to boolean true
-      expect(typeof task.completed).toBe('boolean');
+    test('should coerce string "true" to boolean true', () => {
+      const task = new Task({ title: 'Coerce', description: 'yes', completed: 'true' });
+      expect(task.completed).toBe(true);
     });
   });
 
   describe('Task Queries', () => {
     beforeEach(async () => {
-      // Create test data
-      await Task.create([
+      await Task.insertMany([
         { title: 'Task 1', description: 'Desc 1', completed: false },
         { title: 'Task 2', description: 'Desc 2', completed: true },
         { title: 'Task 3', description: 'Desc 3', completed: false }
@@ -90,35 +68,35 @@ describe('Task Model Unit Tests', () => {
     });
 
     test('should find all tasks', async () => {
-      const tasks = await Task.find({});
+      const tasks = await Task.find();
       expect(tasks).toHaveLength(3);
     });
 
     test('should find completed tasks', async () => {
-      const completedTasks = await Task.find({ completed: true });
-      expect(completedTasks).toHaveLength(1);
-      expect(completedTasks[0].title).toBe('Task 2');
+      const tasks = await Task.find({ completed: true });
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].title).toBe('Task 2');
     });
 
     test('should find incomplete tasks', async () => {
-      const incompleteTasks = await Task.find({ completed: false });
-      expect(incompleteTasks).toHaveLength(2);
+      const tasks = await Task.find({ completed: false });
+      expect(tasks).toHaveLength(2);
     });
 
-    test('should update task completion status', async () => {
+    test('should update task', async () => {
       const task = await Task.findOne({ title: 'Task 1' });
       task.completed = true;
-      const updatedTask = await task.save();
+      const updated = await task.save();
 
-      expect(updatedTask.completed).toBe(true);
+      expect(updated.completed).toBe(true);
     });
 
-    test('should delete task', async () => {
+    test('should delete a task', async () => {
       const task = await Task.findOne({ title: 'Task 1' });
       await Task.findByIdAndDelete(task._id);
 
-      const remainingTasks = await Task.find({});
-      expect(remainingTasks).toHaveLength(2);
+      const remaining = await Task.find();
+      expect(remaining).toHaveLength(2);
     });
   });
 });

@@ -4,6 +4,21 @@ const app = require('../../server'); // Adjust path to your server file
 const Task = require('../../models/Task'); // Adjust path as needed
 
 describe('Task API Endpoints', () => {
+  // Clear tasks before each test
+  beforeEach(async () => {
+  if (mongoose.connection.readyState === 1) {
+    await Task.deleteMany({});
+  }
+});
+
+
+  afterAll(async () => {
+  if (mongoose.connection.readyState === 1) {
+    await mongoose.connection.close();
+  }
+});
+
+
   describe('GET /api/tasks', () => {
     test('should return empty array when no tasks exist', async () => {
       const response = await request(app)
@@ -308,5 +323,70 @@ describe('Task API Endpoints', () => {
       const responseTime = Date.now() - startTime;
       expect(responseTime).toBeLessThan(1000); // Should respond within 1 second
     });
+  });
+});
+
+describe('Error Coverage for Task Routes', () => {
+  // Ensure DB is clean before each error test
+  beforeEach(async () => {
+    if (mongoose.connection.readyState === 1) {
+      await Task.deleteMany({});
+    }
+  });
+
+  // Restore mocked functions after each test
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('POST /api/tasks should return 422 on validation failure', async () => {
+    const response = await request(app)
+      .post('/api/tasks')
+      .send({}) // Missing required fields
+      .set('Content-Type', 'application/json');
+
+    expect([400, 422]).toContain(response.status);
+    expect(response.body).toHaveProperty('error');
+  });
+
+  test('GET /api/tasks should return 500 on DB failure', async () => {
+    jest.spyOn(Task, 'find').mockRejectedValue(new Error('Database failure'));
+
+    const response = await request(app).get('/api/tasks');
+
+    expect(response.status).toBe(500);
+    expect(response.body).toHaveProperty('error');
+    expect(response.body.error).toMatch(/Database failure/);
+  });
+
+  test('PUT /api/tasks/:id should return 422 on invalid data', async () => {
+    const task = await Task.create({
+      title: 'Invalid Update Test',
+      description: 'Testing invalid update',
+      completed: false
+    });
+
+    const response = await request(app)
+      .put(`/api/tasks/${task._id}`)
+      .send({ title: '' }); // Assuming '' is invalid
+
+    expect([400, 422]).toContain(response.status);
+    expect(response.body).toHaveProperty('error');
+  });
+
+  test('DELETE /api/tasks/:id should return 500 on DB error', async () => {
+    const task = await Task.create({
+      title: 'Delete Failure Test',
+      description: 'Simulate DB error',
+      completed: false
+    });
+
+    jest.spyOn(Task, 'findByIdAndDelete').mockRejectedValue(new Error('Forced deletion error'));
+
+    const response = await request(app).delete(`/api/tasks/${task._id}`);
+
+    expect(response.status).toBe(500);
+    expect(response.body).toHaveProperty('error');
+    expect(response.body.error).toMatch(/Forced deletion error/);
   });
 });

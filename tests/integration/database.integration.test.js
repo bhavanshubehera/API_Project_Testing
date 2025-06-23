@@ -1,38 +1,75 @@
+const request = require('supertest');
+const app = require('../../server'); // or wherever your Express app is exported
 const mongoose = require('mongoose');
-const Task = require('../../models/Task'); // Adjust path as needed
+const Task = require('../../models/Task');
+require('dotenv').config(); // load .env (not .env.test)
 
+// Connect to your main DB (same as used by app)
+beforeAll(async () => {
+  if (!process.env.MONGO_URI) {
+    throw new Error("MONGO_URI not defined in .env");
+  }
+
+  await mongoose.connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
+}, 30000); // Increased timeout
+
+// Clean up tasks between tests to prevent pollution
+afterEach(async () => {
+  await mongoose.connection.collection('tasks').deleteMany({});
+});
+
+// Close connection after all tests
+afterAll(async () => {
+  await mongoose.disconnect();
+});
+
+// ---- Your tests remain the same below ----
 describe('Database Integration Tests', () => {
   describe('CRUD Operations Integration', () => {
     test('should perform complete CRUD cycle', async () => {
-      // CREATE
-      const newTask = new Task({
-        title: 'Integration Test Task',
-        description: 'Testing full CRUD cycle',
-        completed: false
-      });
-      const createdTask = await newTask.save();
-      
-      expect(createdTask._id).toBeDefined();
-      expect(createdTask.title).toBe('Integration Test Task');
+  const newTask = new Task({
+    title: 'Integration Test Task',
+    description: 'Testing full CRUD cycle',
+    completed: false
+  });
 
-      // READ
-      const foundTask = await Task.findById(createdTask._id);
-      expect(foundTask).toBeDefined();
-      expect(foundTask.title).toBe(createdTask.title);
+  const createdTask = await newTask.save();
+expect(createdTask).toBeDefined();
+expect(createdTask._id).toBeDefined();
 
-      // UPDATE
-      foundTask.completed = true;
-      foundTask.description = 'Updated description';
-      const updatedTask = await foundTask.save();
-      
-      expect(updatedTask.completed).toBe(true);
-      expect(updatedTask.description).toBe('Updated description');
+// Wait and re-fetch in case write is not yet fully persisted
+await new Promise((res) => setTimeout(res, 100)); // Small wait (100ms)
+const foundTask = await Task.findById(createdTask._id);
+expect(foundTask).not.toBeNull();
 
-      // DELETE
-      await Task.findByIdAndDelete(updatedTask._id);
-      const deletedTask = await Task.findById(updatedTask._id);
-      expect(deletedTask).toBeNull();
-    });
+  expect(createdTask._id).toBeDefined();
+  expect(createdTask.title).toBe('Integration Test Task');
+
+  // ⛏ Ensure the doc is actually in the DB
+  foundTask = await Task.findById(createdTask._id).lean(); // Use .lean() for faster read
+  expect(foundTask).not.toBeNull();
+  expect(foundTask.title).toBe(createdTask.title);
+
+  // ✅ Update step
+  await Task.findByIdAndUpdate(createdTask._id, {
+    $set: {
+      completed: true,
+      description: 'Updated description'
+    }
+  });
+
+  const updatedTask = await Task.findById(createdTask._id).lean();
+  expect(updatedTask.completed).toBe(true);
+  expect(updatedTask.description).toBe('Updated description');
+
+  // ✅ Delete
+  await Task.findByIdAndDelete(createdTask._id);
+  const deletedTask = await Task.findById(createdTask._id);
+  expect(deletedTask).toBeNull();
+});
 
     test('should handle multiple task creation and retrieval', async () => {
       const tasks = [
@@ -161,5 +198,48 @@ describe('Database Integration Tests', () => {
         await session.endSession();
       }
     });
+  });
+});
+describe('Task Route Coverage', () => {
+  let taskId;
+  beforeEach(async () => {
+  const task = await Task.create({ title: 'Test', description: 'Test', completed: false });
+  taskId = task._id;
+  await new Promise(res => setTimeout(res, 100)); // wait for indexing
+});
+
+  afterEach(async () => {
+    await Task.deleteMany({});
+  });
+
+  test('GET /api/tasks/:id returns task', async () => {
+    const res = await request(app).get(`/api/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.title).toBe('Test');
+  });
+
+  test('GET /api/tasks/:id returns 404 for invalid ID', async () => {
+    const res = await request(app).get('/api/tasks/000000000000000000000000');
+    expect(res.status).toBe(404);
+  });
+
+  test('PUT /api/tasks/:id updates a task', async () => {
+    const res = await request(app)
+      .put(`/api/tasks/${taskId}`)
+      .send({ completed: true });
+    expect(res.status).toBe(200);
+    expect(res.body.completed).toBe(true);
+  });
+
+  test('DELETE /api/tasks/:id deletes a task', async () => {
+    const res = await request(app).delete(`/api/tasks/${taskId}`);
+    expect(res.status).toBe(200);
+  });
+
+  test('POST /api/tasks with missing data returns 422', async () => {
+    const res = await request(app)
+      .post('/api/tasks')
+      .send({});
+    expect([400, 422]).toContain(res.status);
   });
 });

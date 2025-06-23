@@ -1,33 +1,31 @@
-const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
+require('dotenv').config();
 
-let mongoServer;
-
-// Setup before all tests
 beforeAll(async () => {
-  // Start in-memory MongoDB instance
-  mongoServer = await MongoMemoryServer.create();
-  const mongoUri = mongoServer.getUri();
-  
-  // Connect to the in-memory database
-  await mongoose.connect(mongoUri);
-});
+  if (mongoose.connection.readyState !== 1) {
+    await mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+  }
+}, 20000); // add timeout in case Atlas is slow
 
-// Cleanup after all tests
-afterAll(async () => {
-  // Close database connection
-  await mongoose.connection.close();
-  
-  // Stop the in-memory MongoDB instance
-  if (mongoServer) {
-    await mongoServer.stop();
+afterEach(async () => {
+  if (mongoose.connection.readyState === 1) {
+    const collections = mongoose.connection.collections;
+    for (const key in collections) {
+      await collections[key].deleteMany({});
+    }
+  } else {
+    console.warn('⚠️ Mongoose not connected during afterEach. Skipping cleanup.');
   }
 });
 
-// Clear database before each test
-afterEach(async () => {
-  const collections = mongoose.connection.collections;
-  for (const key in collections) {
-    await collections[key].deleteMany({});
+afterAll(async () => {
+  if (mongoose.connection.readyState === 1) {
+    await mongoose.connection.dropDatabase();
+    await mongoose.disconnect();
+  } else {
+    console.warn('⚠️ Mongoose not connected during afterAll. Skipping dropDatabase and disconnect.');
   }
 });
